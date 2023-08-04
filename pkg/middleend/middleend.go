@@ -61,7 +61,7 @@ func NewServer(jsonRPC spdk.JSONRPC) *Server {
 // CreateEncryptedVolume creates an encrypted volume
 func (s *Server) CreateEncryptedVolume(_ context.Context, in *pb.CreateEncryptedVolumeRequest) (*pb.EncryptedVolume, error) {
 	defer func() {
-		if in != nil && in.EncryptedVolume != nil {
+		if in.GetEncryptedVolume() != nil {
 			for i := range in.EncryptedVolume.Key {
 				in.EncryptedVolume.Key[i] = 0
 			}
@@ -80,36 +80,37 @@ func (s *Server) CreateEncryptedVolume(_ context.Context, in *pb.CreateEncrypted
 	}
 
 	resourceID := resourceid.NewSystemGenerated()
-	if in.EncryptedVolumeId != "" {
-		err := resourceid.ValidateUserSettable(in.EncryptedVolumeId)
+	if in.GetEncryptedVolumeId() != "" {
+		err := resourceid.ValidateUserSettable(in.GetEncryptedVolumeId())
 		if err != nil {
 			log.Printf("error: %v", err)
 			return nil, errMalformedArgument
 		}
-		log.Printf("client provided the ID of a resource %v, ignoring the name field %v", in.EncryptedVolumeId, in.EncryptedVolume.Name)
-		resourceID = in.EncryptedVolumeId
+		log.Printf("client provided the ID of a resource %v, ignoring the name field %v",
+			in.GetEncryptedVolumeId(), in.GetEncryptedVolume().GetName())
+		resourceID = in.GetEncryptedVolumeId()
 	}
-	in.EncryptedVolume.Name = server.ResourceIDToVolumeName(resourceID)
+	name := server.ResourceIDToVolumeName(resourceID)
 
-	_, ok := s.volumes.encryptedVolumes[in.EncryptedVolume.Name]
+	_, ok := s.volumes.encryptedVolumes[name]
 	if ok {
-		log.Printf("Already existing EncryptedVolume with id %v", in.EncryptedVolume.Name)
+		log.Printf("Already existing EncryptedVolume with id %v", in.GetEncryptedVolume().GetName())
 		// it is not possible to check keys and algorithm. Always send error
 		return nil, errAlreadyExists
 	}
 
-	bdevUUID, err := s.getBdevUUIDByName(in.EncryptedVolume.VolumeNameRef)
+	bdevUUID, err := s.getBdevUUIDByName(in.GetEncryptedVolume().GetVolumeNameRef())
 	if err != nil {
-		log.Println("Failed to find UUID for bdev", in.EncryptedVolume.VolumeNameRef)
+		log.Println("Failed to find UUID for bdev", in.GetEncryptedVolume().GetVolumeNameRef())
 		return nil, err
 	}
 
-	half := len(in.EncryptedVolume.Key) / 2
+	half := len(in.GetEncryptedVolume().GetKey()) / 2
 	tweakMode := "A"
 	params := &models.NpiBdevSetKeysParams{
 		UUID:   bdevUUID,
-		Key:    hex.EncodeToString(in.EncryptedVolume.Key[:half]),
-		Key2:   hex.EncodeToString(in.EncryptedVolume.Key[half:]),
+		Key:    hex.EncodeToString(in.GetEncryptedVolume().GetKey()[:half]),
+		Key2:   hex.EncodeToString(in.GetEncryptedVolume().GetKey()[half:]),
 		Cipher: "AES_XTS",
 		Tweak:  tweakMode,
 	}
@@ -128,11 +129,12 @@ func (s *Server) CreateEncryptedVolume(_ context.Context, in *pb.CreateEncrypted
 		return nil, spdk.ErrUnexpectedSpdkCallResult
 	}
 
-	s.volumes.encryptedVolumes[in.EncryptedVolume.Name] = in.EncryptedVolume.VolumeNameRef
+	s.volumes.encryptedVolumes[name] =
+		in.GetEncryptedVolume().GetVolumeNameRef()
 
 	return &pb.EncryptedVolume{
-		Name:          in.EncryptedVolume.Name,
-		VolumeNameRef: in.EncryptedVolume.VolumeNameRef,
+		Name:          name,
+		VolumeNameRef: in.GetEncryptedVolume().GetVolumeNameRef(),
 	}, nil
 }
 
@@ -143,20 +145,20 @@ func verifyCreateEncryptedVolumeRequestArgs(in *pb.CreateEncryptedVolumeRequest)
 	}
 
 	switch {
-	case in.EncryptedVolume.VolumeNameRef == "":
+	case in.GetEncryptedVolume().GetVolumeNameRef() == "":
 		log.Println("volume name should be specified")
 		return errMissingArgument
-	case len(in.EncryptedVolume.Key) == 0:
+	case len(in.GetEncryptedVolume().GetKey()) == 0:
 		log.Println("key cannot be empty")
 		return errMissingArgument
 	}
 
-	keyLengthInBits := len(in.EncryptedVolume.Key) * 8
+	keyLengthInBits := len(in.GetEncryptedVolume().GetKey()) * 8
 	expectedKeyLengthInBits := 0
 	switch {
-	case in.EncryptedVolume.Cipher == pb.EncryptionType_ENCRYPTION_TYPE_AES_XTS_256:
+	case in.GetEncryptedVolume().GetCipher() == pb.EncryptionType_ENCRYPTION_TYPE_AES_XTS_256:
 		expectedKeyLengthInBits = 512
-	case in.EncryptedVolume.Cipher == pb.EncryptionType_ENCRYPTION_TYPE_AES_XTS_128:
+	case in.GetEncryptedVolume().GetCipher() == pb.EncryptionType_ENCRYPTION_TYPE_AES_XTS_128:
 		expectedKeyLengthInBits = 256
 	default:
 		log.Println("only AES_XTS_128 and AES_XTS_256 are supported")
@@ -181,23 +183,23 @@ func (s *Server) DeleteEncryptedVolume(_ context.Context, in *pb.DeleteEncrypted
 		return nil, errMissingArgument
 	}
 
-	if err := resourcename.Validate(in.Name); err != nil {
+	if err := resourcename.Validate(in.GetName()); err != nil {
 		log.Printf("error: %v", err)
 		return nil, errMalformedArgument
 	}
 
-	underlyingBdev, ok := s.volumes.encryptedVolumes[in.Name]
+	underlyingBdev, ok := s.volumes.encryptedVolumes[in.GetName()]
 	if !ok {
-		if in.AllowMissing {
+		if in.GetAllowMissing() {
 			return &emptypb.Empty{}, nil
 		}
-		log.Printf("error: unable to find key %s", in.Name)
+		log.Printf("error: unable to find key %s", in.GetName())
 		return nil, errVolumeNotFound
 	}
 
 	bdevUUID, err := s.getBdevUUIDByName(underlyingBdev)
 	if err != nil {
-		log.Println("Failed to find UUID for bdev", in.Name)
+		log.Println("Failed to find UUID for bdev", in.GetName())
 		return nil, err
 	}
 	params := models.NpiBdevClearKeysParams{
@@ -213,7 +215,7 @@ func (s *Server) DeleteEncryptedVolume(_ context.Context, in *pb.DeleteEncrypted
 		log.Println("Failed result on SPDK call:", result)
 		return nil, spdk.ErrUnexpectedSpdkCallResult
 	}
-	delete(s.volumes.encryptedVolumes, in.Name)
+	delete(s.volumes.encryptedVolumes, in.GetName())
 	return &emptypb.Empty{}, nil
 }
 

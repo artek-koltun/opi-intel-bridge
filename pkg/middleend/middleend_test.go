@@ -409,15 +409,13 @@ func TestMiddleEnd_CreateEncryptedVolume(t *testing.T) {
 				t.Errorf("expect grpc error status")
 			}
 
-			if request.GetEncryptedVolume() != nil {
-				if !bytes.Equal(request.EncryptedVolume.Key, tt.expectedInKey) {
-					t.Error("input key after operation expected",
-						tt.expectedInKey, "received", request.EncryptedVolume.Key)
-				}
-				if request.EncryptedVolume.Cipher != pb.EncryptionType_ENCRYPTION_TYPE_UNSPECIFIED {
-					t.Error("Expect in cipher set to EncryptionType_ENCRYPTION_TYPE_UNSPECIFIED, received",
-						request.EncryptedVolume.Cipher)
-				}
+			if !bytes.Equal(request.GetEncryptedVolume().GetKey(), tt.expectedInKey) {
+				t.Error("input key after operation expected",
+					tt.expectedInKey, "received", request.EncryptedVolume.Key)
+			}
+			if request.GetEncryptedVolume().GetCipher() != pb.EncryptionType_ENCRYPTION_TYPE_UNSPECIFIED {
+				t.Error("Expect in cipher set to EncryptionType_ENCRYPTION_TYPE_UNSPECIFIED, received",
+					request.EncryptedVolume.Cipher)
 			}
 		})
 	}
