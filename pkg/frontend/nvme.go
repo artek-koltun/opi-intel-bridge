@@ -31,19 +31,19 @@ func (c npiSubsystemListener) Params(ctrlr *pb.NvmeController, nqn string) spdk.
 	result := spdk.NvmfSubsystemAddListenerParams{}
 	result.Nqn = nqn
 	result.ListenAddress.Trtype = "npi"
-	result.ListenAddress.Traddr = calculateTransportAddr(ctrlr.Spec.PcieId)
+	result.ListenAddress.Traddr = calculateTransportAddr(ctrlr.GetSpec().GetPcieId())
 	return result
 }
 
 func calculateTransportAddr(pci *pb.PciEndpoint) string {
-	return strconv.Itoa(int(pci.PhysicalFunction)) +
-		"." + strconv.Itoa(int(pci.VirtualFunction))
+	return strconv.Itoa(int(pci.GetPhysicalFunction())) +
+		"." + strconv.Itoa(int(pci.GetVirtualFunction()))
 }
 
 // CreateNvmeController creates an Nvme controller
 func (s *Server) CreateNvmeController(ctx context.Context, in *pb.CreateNvmeControllerRequest) (*pb.NvmeController, error) {
-	log.Printf("Intel bridge CreateNvmeController received from client: %v", in.NvmeController)
-	if err := s.verifyNvmeControllerOnCreate(in.NvmeController); err != nil {
+	log.Printf("Intel bridge CreateNvmeController received from client: %v", in.GetNvmeController())
+	if err := s.verifyNvmeControllerOnCreate(in.GetNvmeController()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
@@ -52,16 +52,16 @@ func (s *Server) CreateNvmeController(ctx context.Context, in *pb.CreateNvmeCont
 	if err == nil {
 		// response contains different QoS limits. It is an indication that
 		// opi-spdk-bridge returned an already existing controller providing idempotence
-		if !proto.Equal(response.Spec.MaxLimit, in.NvmeController.Spec.MaxLimit) ||
-			!proto.Equal(response.Spec.MinLimit, in.NvmeController.Spec.MinLimit) {
+		if !proto.Equal(response.GetSpec().GetMaxLimit(), in.GetNvmeController().GetSpec().GetMaxLimit()) ||
+			!proto.Equal(response.GetSpec().GetMinLimit(), in.GetNvmeController().GetSpec().GetMinLimit()) {
 			log.Printf("Existing NvmeController %v has different QoS limits",
 				in.NvmeController)
 			return nil, status.Errorf(codes.AlreadyExists,
-				"Controller %v exists with different QoS limits", in.NvmeController.Name)
+				"Controller %v exists with different QoS limits", in.GetNvmeController().GetName())
 		}
 
-		if qosErr := s.setNvmeQosLimit(in.NvmeController); qosErr != nil {
-			s.cleanupNvmeControllerCreation(in.NvmeController.Name)
+		if qosErr := s.setNvmeQosLimit(in.GetNvmeController()); qosErr != nil {
+			s.cleanupNvmeControllerCreation(in.GetNvmeController().GetName())
 			return nil, qosErr
 		}
 	}
@@ -72,22 +72,23 @@ func (s *Server) CreateNvmeController(ctx context.Context, in *pb.CreateNvmeCont
 // UpdateNvmeController updates an Nvme controller
 func (s *Server) UpdateNvmeController(ctx context.Context, in *pb.UpdateNvmeControllerRequest) (*pb.NvmeController, error) {
 	log.Printf("Intel bridge UpdateNvmeController received from client: %v", in)
-	if err := s.verifyNvmeControllerOnUpdate(in.NvmeController); err != nil {
+	if err := s.verifyNvmeControllerOnUpdate(in.GetNvmeController()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	originalNvmeController := s.nvme.Controllers[in.NvmeController.Name]
+	originalNvmeController := s.nvme.Controllers[in.GetNvmeController().GetName()]
 	log.Printf("Passing request to opi-spdk-bridge")
 	response, err := s.FrontendNvmeServiceServer.UpdateNvmeController(ctx, in)
 
 	if err == nil {
-		if qosErr := s.setNvmeQosLimit(in.NvmeController); qosErr != nil {
+		if qosErr := s.setNvmeQosLimit(in.GetNvmeController()); qosErr != nil {
 			log.Println("Failed to set qos settings:", qosErr)
 			log.Println("Restore original controller")
-			s.nvme.Controllers[in.NvmeController.Name] = originalNvmeController
+			s.nvme.Controllers[in.GetNvmeController().GetName()] = originalNvmeController
 			return nil, qosErr
 		}
 	}
+
 	return response, err
 }
 
@@ -101,19 +102,19 @@ func (s *Server) verifyNvmeControllerOnUpdate(controller *pb.NvmeController) err
 	}
 
 	// Name had to be assigned on create
-	if controller.Name == "" {
+	if controller.GetName() == "" {
 		return fmt.Errorf("name cannot be empty on update")
 	}
 	return nil
 }
 
 func (s *Server) verifyNvmeController(controller *pb.NvmeController) error {
-	maxLimit := controller.Spec.MaxLimit
+	maxLimit := controller.GetSpec().GetMaxLimit()
 	if err := s.verifyNvmeControllerMaxLimits(maxLimit); err != nil {
 		return err
 	}
 
-	minLimit := controller.Spec.MinLimit
+	minLimit := controller.GetSpec().GetMinLimit()
 	if err := s.verifyNvmeControllerMinLimits(minLimit); err != nil {
 		return err
 	}
@@ -122,86 +123,80 @@ func (s *Server) verifyNvmeController(controller *pb.NvmeController) error {
 }
 
 func (s *Server) verifyNvmeControllerMaxLimits(maxLimit *pb.QosLimit) error {
-	if maxLimit != nil {
-		if maxLimit.RwIopsKiops != 0 {
-			return fmt.Errorf("QoS max_limit rw_iops_kiops is not supported")
-		}
-		if maxLimit.RwBandwidthMbs != 0 {
-			return fmt.Errorf("QoS max_limit rw_bandwidth_mbs is not supported")
-		}
-
-		if maxLimit.RdIopsKiops < 0 {
-			return fmt.Errorf("QoS max_limit rd_iops_kiops cannot be negative")
-		}
-		if maxLimit.WrIopsKiops < 0 {
-			return fmt.Errorf("QoS max_limit wr_iops_kiops cannot be negative")
-		}
-		if maxLimit.RdBandwidthMbs < 0 {
-			return fmt.Errorf("QoS max_limit rd_bandwidth_mbs cannot be negative")
-		}
-		if maxLimit.WrBandwidthMbs < 0 {
-			return fmt.Errorf("QoS max_limit wr_bandwidth_mbs cannot be negative")
-		}
+	if maxLimit.GetRwIopsKiops() != 0 {
+		return fmt.Errorf("QoS max_limit rw_iops_kiops is not supported")
 	}
+	if maxLimit.GetRwBandwidthMbs() != 0 {
+		return fmt.Errorf("QoS max_limit rw_bandwidth_mbs is not supported")
+	}
+
+	if maxLimit.GetRdIopsKiops() < 0 {
+		return fmt.Errorf("QoS max_limit rd_iops_kiops cannot be negative")
+	}
+	if maxLimit.GetWrIopsKiops() < 0 {
+		return fmt.Errorf("QoS max_limit wr_iops_kiops cannot be negative")
+	}
+	if maxLimit.GetRdBandwidthMbs() < 0 {
+		return fmt.Errorf("QoS max_limit rd_bandwidth_mbs cannot be negative")
+	}
+	if maxLimit.GetWrBandwidthMbs() < 0 {
+		return fmt.Errorf("QoS max_limit wr_bandwidth_mbs cannot be negative")
+	}
+
 	return nil
 }
 
 func (s *Server) verifyNvmeControllerMinLimits(minLimit *pb.QosLimit) error {
-	if minLimit != nil {
-		if minLimit.RwIopsKiops != 0 {
-			return fmt.Errorf("QoS min_limit rw_iops_kiops is not supported")
-		}
-		if minLimit.RwBandwidthMbs != 0 {
-			return fmt.Errorf("QoS min_limit rw_bandwidth_mbs is not supported")
-		}
-		if minLimit.RdIopsKiops != 0 {
-			return fmt.Errorf("QoS min_limit rd_iops_kiops is not supported")
-		}
-		if minLimit.WrIopsKiops != 0 {
-			return fmt.Errorf("QoS min_limit wr_iops_kiops is not supported")
-		}
-
-		if minLimit.RdBandwidthMbs < 0 {
-			return fmt.Errorf("QoS min_limit rd_bandwidth_mbs cannot be negative")
-		}
-		if minLimit.WrBandwidthMbs < 0 {
-			return fmt.Errorf("QoS min_limit wr_bandwidth_mbs cannot be negative")
-		}
+	if minLimit.GetRwIopsKiops() != 0 {
+		return fmt.Errorf("QoS min_limit rw_iops_kiops is not supported")
 	}
+	if minLimit.GetRwBandwidthMbs() != 0 {
+		return fmt.Errorf("QoS min_limit rw_bandwidth_mbs is not supported")
+	}
+	if minLimit.GetRdIopsKiops() != 0 {
+		return fmt.Errorf("QoS min_limit rd_iops_kiops is not supported")
+	}
+	if minLimit.GetWrIopsKiops() != 0 {
+		return fmt.Errorf("QoS min_limit wr_iops_kiops is not supported")
+	}
+
+	if minLimit.GetRdBandwidthMbs() < 0 {
+		return fmt.Errorf("QoS min_limit rd_bandwidth_mbs cannot be negative")
+	}
+	if minLimit.GetWrBandwidthMbs() < 0 {
+		return fmt.Errorf("QoS min_limit wr_bandwidth_mbs cannot be negative")
+	}
+
 	return nil
 }
 
 func (s *Server) verifyNvmeControllerMinMaxLimitCorrespondence(minLimit *pb.QosLimit, maxLimit *pb.QosLimit) error {
-	if minLimit != nil && maxLimit != nil {
-		if maxLimit.RdBandwidthMbs != 0 && minLimit.RdBandwidthMbs > maxLimit.RdBandwidthMbs {
-			return fmt.Errorf("QoS min_limit rd_bandwidth_mbs cannot be greater than max_limit rd_bandwidth_mbs")
-		}
-		if maxLimit.WrBandwidthMbs != 0 && minLimit.WrBandwidthMbs > maxLimit.WrBandwidthMbs {
-			return fmt.Errorf("QoS min_limit wr_bandwidth_mbs cannot be greater than max_limit wr_bandwidth_mbs")
-		}
+	if maxLimit.GetRdBandwidthMbs() != 0 && minLimit.GetRdBandwidthMbs() > maxLimit.GetRdBandwidthMbs() {
+		return fmt.Errorf("QoS min_limit rd_bandwidth_mbs cannot be greater than max_limit rd_bandwidth_mbs")
 	}
+
+	if maxLimit.GetWrBandwidthMbs() != 0 && minLimit.GetWrBandwidthMbs() > maxLimit.GetWrBandwidthMbs() {
+		return fmt.Errorf("QoS min_limit wr_bandwidth_mbs cannot be greater than max_limit wr_bandwidth_mbs")
+	}
+
 	return nil
 }
 
 func (s *Server) setNvmeQosLimit(controller *pb.NvmeController) error {
 	log.Printf("Setting QoS limits %v for %v", controller.Spec.MaxLimit, controller.Name)
 	params := models.NpiQosBwIopsLimitParams{
-		Nqn: s.nvme.Subsystems[controller.Spec.SubsystemNameRef].Spec.Nqn,
+		Nqn: s.nvme.Subsystems[controller.GetSpec().GetSubsystemNameRef()].GetSpec().GetNqn(),
 	}
 
-	maxLimit := controller.Spec.MaxLimit
-	if maxLimit != nil {
-		params.MaxReadIops = int(maxLimit.RdIopsKiops)
-		params.MaxWriteIops = int(maxLimit.WrIopsKiops)
-		params.MaxReadBw = int(maxLimit.RdBandwidthMbs)
-		params.MaxWriteBw = int(maxLimit.WrBandwidthMbs)
-	}
+	maxLimit := controller.GetSpec().GetMaxLimit()
+	params.MaxReadIops = int(maxLimit.GetRdIopsKiops())
+	params.MaxWriteIops = int(maxLimit.GetWrIopsKiops())
+	params.MaxReadBw = int(maxLimit.GetRdBandwidthMbs())
+	params.MaxWriteBw = int(maxLimit.GetWrBandwidthMbs())
 
-	minLimit := controller.Spec.MinLimit
-	if minLimit != nil {
-		params.MinReadBw = int(minLimit.RdBandwidthMbs)
-		params.MinWriteBw = int(minLimit.WrBandwidthMbs)
-	}
+	minLimit := controller.GetSpec().GetMinLimit()
+	params.MinReadBw = int(minLimit.GetRdBandwidthMbs())
+	params.MinWriteBw = int(minLimit.GetWrBandwidthMbs())
 
 	var result models.NpiQosBwIopsLimitResult
 	err := s.rpc.Call("npi_qos_bw_iops_limit", &params, &result)
