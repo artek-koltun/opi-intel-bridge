@@ -465,6 +465,8 @@ github.com/opiproject/gospdk v0.0.0-20240104193607-3b9b5f6fdcaa h1:LNWxY712RevKB
 github.com/opiproject/gospdk v0.0.0-20240104193607-3b9b5f6fdcaa/go.mod h1:9CMbTd9ptR6tl6HRRn8C33DPeWF85hTo4KZCa5iKftY=
 github.com/opiproject/gospdk v0.0.0-20240108075015-92d689fff706 h1:fZcUuXgfsfWIbSZTPCJG72wh7LyKIyrpPR9kH+rKEXI=
 github.com/opiproject/gospdk v0.0.0-20240108075015-92d689fff706/go.mod h1:9CMbTd9ptR6tl6HRRn8C33DPeWF85hTo4KZCa5iKftY=
+github.com/opiproject/gospdk v0.0.0-20240115073959-dff04eece15a h1:RcBndvpWDCt4LciHMViwOs1rVXD/Qbi95KhY2bNyLfE=
+github.com/opiproject/gospdk v0.0.0-20240115073959-dff04eece15a/go.mod h1:9CMbTd9ptR6tl6HRRn8C33DPeWF85hTo4KZCa5iKftY=
 github.com/opiproject/opi-api v0.0.0-20231204182835-b9900483c605 h1:3buAwkHHsEMjn+cIUOTi7RLcG8n3/52UNm8pZ8tZOJI=
 github.com/opiproject/opi-api v0.0.0-20231204182835-b9900483c605/go.mod h1:92pv4ulvvPMuxCJ9ND3aYbmBfEMLx0VCjpkiR7ZTqPY=
 github.com/opiproject/opi-smbios-bridge v0.1.3-0.20231209030245-a017fdaa0e05 h1:uWdrNakf8wVHsBFoMzCkmrcbggvI0Ix9lf+5tYd3ZAo=
