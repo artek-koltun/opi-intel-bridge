@@ -17,7 +17,7 @@ require (
 	github.com/philippgille/gokv/redis v0.6.0
 	github.com/vektra/mockery/v2 v2.39.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.46.1
-	golang.org/x/tools v0.16.1
+	golang.org/x/tools v0.17.0
 	google.golang.org/grpc v1.60.1
 	google.golang.org/protobuf v1.32.0
 )
